@@ -35,6 +35,7 @@
 
 #include "bn_sprite_items_square.h"            // generated from graphics/square.bmp
 #include "bn_sprite_items_circle.h"            // generated from graphics/circle.bmp (size sheet)
+#include "bn_sprite_items_plus.h"              // generated from graphics/plus.bmp (alt glyph)
 #include "common_variable_8x16_sprite_font.h"  // font for pk::Text
 
 namespace pk
@@ -313,19 +314,23 @@ namespace pk
         Circle& radius(fixed r)            { return diameter(r * 2); }
         Circle& diameter(fixed d)          { int f = (d / STEP + fixed(0.5)).integer() - 1;
                                              f = f < 0 ? 0 : (f >= SIZES ? SIZES - 1 : f);
-                                             if(f != _frame) { _frame = f; _sp.set_item(bn::sprite_items::circle, f); }
+                                             if(f != _frame) { _frame = f; set(f); }
                                              return *this; }  // skip the tile swap when size is unchanged
         Circle& fill(color c)              { bn::sprite_palette_ptr p = _sp.palette(); p.set_fade(c, 1); return *this; }
         Circle& show(bool v = true)        { _sp.set_visible(v); return *this; }
         Circle& layer(int z)               { _sp.set_z_order(z); return *this; }
+        // Morph the glyph between a circle and a + sign (same 16-size sheet layout).
+        Circle& plus(bool p)               { if(p != _plus) { _plus = p; set(_frame < 0 ? 0 : _frame); } return *this; }
 
         fixed x() const { return _sp.x(); }
         fixed y() const { return _sp.y(); }
         bn::sprite_ptr& sprite() { return _sp; }
 
     private:
+        void set(int f) { _sp.set_item(_plus ? bn::sprite_items::plus : bn::sprite_items::circle, f); }
         bn::sprite_ptr _sp;
-        int _frame = 0;
+        int  _frame = 0;
+        bool _plus = false;
     };
 
     // ---- the loop -----------------------------------------------------------
