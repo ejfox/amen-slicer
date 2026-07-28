@@ -11,19 +11,27 @@ import subprocess, wave, os
 import numpy as np
 
 RATE = 16000
+FPS  = 59.7275                # real GBA refresh rate (NOT 60) — keeps tempo accurate for sync
 BAR_GUESS = 1.74186           # ~137.8 BPM amen bar, used to auto-detect bar length
 PACK = "/Users/ejfox/Library/Mobile Documents/com~apple~CloudDocs/Desktop/2025/2025-10/Rhythm Lab The Ultimate Amen Breaks Pack"
 
-# (label shown in-game, path) — 8 tonal flavors
+# (label, path, bar_seconds)  bar=None → auto-detect (~137 BPM). For retempo'd
+# remixes the filename BPM gives the bar: bar = 240 / BPM.
 BANKS = [
-    ("clean",   f"{PACK}/Original/AmenVN_4barOrig.wav"),
-    ("winston", f"{PACK}/Original/Amen Break Unknown - The Winstons - Amen Brother.wav"),
-    ("45rpm",   f"{PACK}/Original/Amen Break Vinyl - Fanu Amen-from-the-45.wav"),
-    ("33rpm",   f"{PACK}/Original/amen-33.wav"),
-    ("cleaned", f"{PACK}/Original/Amen-cleaned a bit.wav"),
-    ("vinyl",   f"{PACK}/Original/Amen Break Vinyl - Fanu amen-7.wav"),
-    ("tape",    f"{PACK}/Fanu/AMEN-cassette 1.wav"),
-    ("2000xl",  f"{PACK}/Fanu/amen-2000xl-quieterer.wav"),
+    ("clean",   f"{PACK}/Original/AmenVN_4barOrig.wav", None),
+    ("winston", f"{PACK}/Original/Amen Break Unknown - The Winstons - Amen Brother.wav", None),
+    ("45rpm",   f"{PACK}/Original/Amen Break Vinyl - Fanu Amen-from-the-45.wav", None),
+    ("33rpm",   f"{PACK}/Original/amen-33.wav", None),
+    ("cleaned", f"{PACK}/Original/Amen-cleaned a bit.wav", None),
+    ("vinyl",   f"{PACK}/Original/Amen Break Vinyl - Fanu amen-7.wav", None),
+    ("tape",    f"{PACK}/Fanu/AMEN-cassette 1.wav", None),
+    ("2000xl",  f"{PACK}/Fanu/amen-2000xl-quieterer.wav", None),
+    # --- weirder ---
+    ("crush",   f"{PACK}/Fanu/amen-sonalksis-multilimit-comp.wav", None),
+    ("soft",    f"{PACK}/Fanu/amen-2000xl-quietererer-SOFTEN.wav", None),
+    ("freak",   f"{PACK}/SAMPLED AND REMIXED/170 Freak Break.wav", 240/170),
+    ("skull",   f"{PACK}/SAMPLED AND REMIXED/165 Skull Break.wav", 240/165),
+    ("toptape", f"{PACK}/SAMPLED AND REMIXED/150 TopTape Break.wav", 240/150),
 ]
 SLICES, FADE = 16, 16
 ENV_RES = 24                  # waveform-envelope resolution baked in for zen-mode viz
@@ -39,10 +47,10 @@ for f in os.listdir("audio"):
     if f.endswith(".wav"): os.remove(os.path.join("audio", f))
 
 steps, envs = [], []
-for bi, (label, path) in enumerate(BANKS):
+for bi, (label, path, barov) in enumerate(BANKS):
     dur  = duration(path)
-    bars = max(1, round(dur / BAR_GUESS))
-    bar  = dur / bars                                   # first bar length (seconds)
+    if barov:  bar = barov                              # explicit bar (retempo'd remixes)
+    else:      bar = dur / max(1, round(dur / BAR_GUESS))  # auto-detect (~137 BPM)
     raw  = subprocess.run(["ffmpeg","-v","error","-t",str(bar),"-i",path,
                            "-ac","1","-ar",str(RATE),"-f","s16le","-"],
                           capture_output=True).stdout
@@ -63,9 +71,9 @@ for bi, (label, path) in enumerate(BANKS):
         b = np.clip(np.round(128 + c * 120), 0, 255).astype(np.uint8).tobytes()
         w = wave.open(f"audio/bk{bi}s{i:02d}.wav", "wb")
         w.setnchannels(1); w.setsampwidth(1); w.setframerate(RATE); w.writeframes(b); w.close()
-    fps = slen / RATE * 60                               # frames per step @60fps
-    steps.append(fps)
-    print(f"  bank {bi} {label:8s}  {bars}bar  slice={slen}  frames/step={fps:.4f}  ~{900/fps:.0f}bpm")
+    fstep = slen / RATE * FPS                            # frames per 16th at the true refresh rate
+    steps.append(fstep)
+    print(f"  bank {bi} {label:8s}  bar={bar:.3f}s  slice={slen}  frames/step={fstep:.4f}  {15*RATE/slen:.1f}bpm")
 
 # generate the C++ lookup table
 os.makedirs("include", exist_ok=True)
@@ -83,7 +91,7 @@ with open("include/banks.h", "w") as h:
     h.write("    inline const bn::fixed step[COUNT] = { "
             + ", ".join(f"bn::fixed({s:.4f})" for s in steps) + " };\n")
     h.write("    inline const char* name[COUNT] = { "
-            + ", ".join(f'"{lbl}"' for lbl, _ in BANKS) + " };\n\n")
+            + ", ".join(f'"{lbl}"' for lbl, *_ in BANKS) + " };\n\n")
     h.write(f"    constexpr int ENV_RES = {ENV_RES};\n")
     h.write("    inline const unsigned char env[COUNT][ENV_RES] = {\n")
     for e in envs:
