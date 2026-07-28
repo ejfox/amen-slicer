@@ -274,9 +274,7 @@ void pk::update()
         }
         else for(int i = 0; i < SHOCKN; ++i) shock[i].show(false);
 
-        // real waveform, faint, full-width behind the mandala
-        { bn::sprite_palette_ptr wp = wsp[0].palette(); wp.set_fade(T::deep, 1); }
-        for(int s = 0; s < 4; ++s) { wsp[s].set_position(-96 + s * 64, 0); wsp[s].set_visible(true); }
+        for(int s = 0; s < 4; ++s) wsp[s].set_visible(false);   // no waveform in zen — mandala only
 
         hud->clear();
         hud->align_center();
