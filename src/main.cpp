@@ -1,6 +1,7 @@
-// AMEN SLICER — breakbeat slicer for GBA. Atomic-purple theme (clear-purple GBA
-// on OLED black). Two modes: EXPLAIN (labelled control panel) and ZEN (a live
-// generative viz of the break's real waveform). SELECT+START toggles them.
+// AMEN SLICER — breakbeat slicer for GBA. Atomic-purple theme on OLED black.
+// EXPLAIN mode = labelled control panel. ZEN mode = a reactive waveform mandala
+// where EVERY control eases a physical parameter (nothing hard-cuts).
+// SELECT+START toggles modes.
 #include "pk.h"
 #include "banks.h"
 
@@ -8,22 +9,32 @@
 #include "bn_string.h"
 #include "bn_sound_items.h"
 
-namespace T = pk::atomic;      // theme
+namespace T = pk::atomic;
 
 namespace
 {
     using pk::fixed; using pk::color;
-    constexpr int STEPS = 16, NP = 12, RES = banks::ENV_RES;
+    constexpr int STEPS = 16, NP = 16, TRAIL = 5, RES = banks::ENV_RES;
 
-    fixed speed = 1, acc = 0, rot = 0;
-    int step = 0, bank = 0, flash = 0, upd = 0, dnd = 0;
+    // transport
+    fixed speed = 1, acc = 0, rot = 0, rot2 = 0;
+    int step = 0, bank = 0, upd = 0, dnd = 0;
     bool zen = false;
 
-    bn::vector<pk::Circle, STEPS> dots;      // explain: step row
-    bn::optional<pk::Circle>      vu;        // explain: center pulse
-    bn::vector<pk::Circle, RES>   ring;      // zen: waveform ring
-    bn::vector<pk::Circle, NP>    parts;     // zen: hit particles
-    bn::optional<pk::Circle>      core;      // zen: center pulse
+    // eased visual system — every control moves a TARGET; these chase it
+    fixed vspeed = 1;         // eased speed  → spin rate
+    fixed vstut  = 0;         // eased stutter energy → contraction / heat
+    fixed vpitch = 1;         // eased fx pitch → hue / scale
+    fixed venv[RES] = { 0 };  // eased waveform → morphs between flavors
+    fixed flashF = 0;         // eased hit glow
+    pk::Spring zoom;          // springy beat-breathe (bouncy overshoot)
+
+    bn::vector<pk::Circle, STEPS> dots;
+    bn::optional<pk::Circle>      vu;
+    bn::vector<pk::Circle, RES>   ring, ring2;
+    bn::vector<pk::Circle, TRAIL> comet;
+    bn::vector<pk::Circle, NP>    parts;
+    bn::optional<pk::Circle>      core;
     pk::Body pbody[NP];
     int      plife[NP] = { 0 };
     bn::optional<pk::Text> hud;
@@ -54,7 +65,7 @@ namespace
 
     void build_explain()
     {
-        ring.clear(); parts.clear(); core.reset();
+        ring.clear(); ring2.clear(); comet.clear(); parts.clear(); core.reset();
         dots.clear();
         for(int i = 0; i < STEPS; ++i) { dots.emplace_back(); dots[i].pos(pk::col(i, STEPS), -26); }
         vu.emplace(); vu->fill(T::base);
@@ -62,24 +73,28 @@ namespace
     void build_zen()
     {
         dots.clear(); vu.reset();
-        ring.clear();
-        for(int i = 0; i < RES; ++i) ring.emplace_back();
-        parts.clear();
-        for(int i = 0; i < NP; ++i) { parts.emplace_back(); parts[i].show(false); plife[i] = 0; }
+        ring.clear();  for(int i = 0; i < RES; ++i)   ring.emplace_back();
+        ring2.clear(); for(int i = 0; i < RES; ++i)   ring2.emplace_back();
+        comet.clear(); for(int i = 0; i < TRAIL; ++i) comet.emplace_back();
+        parts.clear(); for(int i = 0; i < NP; ++i)  { parts.emplace_back(); parts[i].show(false); plife[i] = 0; }
         core.emplace(); core->fill(T::base);
+        zoom.reset(1); zoom.stiffness = fixed(0.22); zoom.damping = fixed(0.6);
+        for(int i = 0; i < RES; ++i) venv[i] = fixed(banks::env[bank][i]) / 255;  // snap on enter
     }
 
-    void spawn_burst(int st, bool downbeat)      // bloom particles on a hit, scaled by loudness
+    void spawn_burst(int st, bool downbeat)
     {
         fixed amp = fixed(banks::env[bank][st * RES / STEPS]) / 255;
-        int n = downbeat ? 5 : 2;
+        int n = downbeat ? 8 : 3;
         for(int c = 0; c < n; ++c)
             for(int i = 0; i < NP; ++i)
                 if(plife[i] <= 0)
                 {
-                    fixed a = pk::rnd(0, 360), spd = pk::rnd(fixed(1), fixed(3)) * (fixed(0.5) + amp);
-                    pbody[i] = { 0, 0, pk::cos(a) * spd, pk::sin(a) * spd };
-                    plife[i] = 16 + (amp * 12).integer();
+                    fixed a = pk::rnd(0, 360), spd = pk::rnd(fixed(1), fixed(3)) * (fixed(0.6) + amp);
+                    fixed tang = pk::rnd(fixed(-2), fixed(2));
+                    pbody[i] = { 0, 0, pk::cos(a) * spd - pk::sin(a) * tang,
+                                       pk::sin(a) * spd + pk::cos(a) * tang };
+                    plife[i] = 18 + (amp * 14).integer();
                     break;
                 }
     }
@@ -99,7 +114,7 @@ void pk::update()
     bool  repeating = rmult > 0;
     fixed fxpitch = speed, fxrate = speed;
 
-    if(repeating)   // hold a stutter + arrows = stacked breakdown FX
+    if(repeating)
     {
         if(down(key::UP))   { upd = upd + 1 > 90 ? 90 : upd + 1; fixed r = 1 + fixed(upd) * fixed(0.03); fxpitch = speed * r; fxrate = speed * r; }
         else                  upd = 0;
@@ -113,71 +128,97 @@ void pk::update()
         upd = 0; dnd = 0;
         if(down(key::UP))       speed = clamp(speed + fixed(0.015), fixed(0.4), fixed(2.5));
         if(down(key::DOWN))     speed = clamp(speed - fixed(0.015), fixed(0.4), fixed(2.5));
-        if(pressed(key::RIGHT)) { bank = (bank + 1) % banks::COUNT; acc = 0; }
-        if(pressed(key::LEFT))  { bank = (bank + banks::COUNT - 1) % banks::COUNT; acc = 0; }
+        if(pressed(key::RIGHT)) { bank = (bank + 1) % banks::COUNT; acc = 0; zoom.vel += fixed(0.3); }
+        if(pressed(key::LEFT))  { bank = (bank + banks::COUNT - 1) % banks::COUNT; acc = 0; zoom.vel += fixed(0.3); }
     }
 
     fixed interval = (repeating ? banks::step[bank] * rmult : banks::step[bank]) / fxrate;
 
-    // mode toggle (SEL+START) vs back-to-1 (START) vs flavor (SEL)
-    if(down(key::SELECT) && pressed(key::START)) { zen = ! zen; if(zen) build_zen(); else build_explain(); }
-    else if(pressed(key::START))                 { step = 0; acc = interval; }
-    if(pressed(key::SELECT) && ! down(key::START)) { bank = (bank + 1) % banks::COUNT; acc = 0; }
+    if(down(key::SELECT) && pressed(key::START)) { zen = ! zen; if(zen) build_zen(); else build_explain(); zoom.vel += fixed(0.5); }
+    else if(pressed(key::START))                 { step = 0; acc = interval; zoom.vel += fixed(0.7); flashF = 1; }
+    if(pressed(key::SELECT) && ! down(key::START)) { bank = (bank + 1) % banks::COUNT; acc = 0; zoom.vel += fixed(0.3); }
 
     // ---- clock ----
+    bool downbeat = false;
     acc += 1;
     if(acc >= interval)
     {
         acc -= interval;
-        bool downbeat = (step == 0);
+        downbeat = (step == 0);
         banks::slices[bank][step]->play(repeating ? fixed(0.7) : fixed(0.9), clamp(fxpitch, fixed(0.1), fixed(6)), 0);
-        flash = downbeat ? 8 : 4;
-        if(zen) spawn_burst(step, downbeat);
+        flashF = downbeat ? 1 : fixed(0.6);
+        if(zen) { spawn_burst(step, downbeat); zoom.vel += downbeat ? fixed(0.6) : fixed(0.28); }
         if(! repeating) step = (step + 1) % STEPS;
     }
-    if(flash > 0) --flash;
+
+    // ---- ease the whole system toward its targets (nothing hard-cuts) ----
+    vspeed = approach(vspeed, speed, fixed(0.08));
+    fixed stutTarget = repeating ? clamp(map(rmult, 2, fixed(0.25), fixed(0.3), 1), fixed(0.3), 1) : fixed(0);
+    vstut  = approach(vstut, stutTarget, fixed(0.12));
+    vpitch = approach(vpitch, fxpitch, fixed(0.1));
+    flashF = approach(flashF, 0, fixed(0.16));
+    for(int i = 0; i < RES; ++i)
+        venv[i] = approach(venv[i], fixed(banks::env[bank][i]) / 255, fixed(0.09));  // flavor morph
 
     int bpm = (fixed(900) * speed / banks::step[bank] + fixed(0.5)).integer();
 
-    // theme color, modulated live (shared circle palette → recolors everything)
-    color c = mix(T::base, T::glow, fixed(flash) / 8);
-    if(upd > 0) c = mix(c, T::cyan, fixed(upd) / 90);     // build  → cool
-    if(dnd > 0) c = mix(c, T::dim,  fixed(dnd) / 90);     // stop   → dim
+    // living color — driven by the eased params, so every control tints it a little
+    fixed drift = (sin(fixed(frame) * fixed(1.4)) + 1) / 2;
+    color c = mix(T::base, T::bright, drift);
+    c = mix(c, T::glow, flashF);
+    c = mix(c, T::cyan, clamp(vstut * fixed(0.7) + fixed(upd) / 120, fixed(0), fixed(0.9)));  // stutter/build → cool
+    c = mix(c, T::dim,  fixed(dnd) / 100);                                                    // tape-stop → dim
+    c = mix(c, vpitch > 1 ? T::glow : T::deep, clamp((vpitch > 1 ? vpitch - 1 : 1 - vpitch) * fixed(0.5), fixed(0), fixed(0.4)));
 
     if(zen)
     {
-        // ---- ZEN: rotating real-waveform ring + particles + core pulse ----
-        rot += fixed(0.5) + fixed(upd) * fixed(0.06) - fixed(dnd) * fixed(0.04);
-        int playidx = step * RES / STEPS;
+        fixed Z = clamp(zoom.update(1), fixed(0.4), fixed(2)) * (1 - vstut * fixed(0.15));  // stutter tightens the mandala
+        rot  += fixed(0.3) + vspeed * fixed(0.5) + vstut * fixed(0.8) + fixed(upd) * fixed(0.06) - fixed(dnd) * fixed(0.05);
+        rot2 -= fixed(0.5) + vspeed * fixed(0.35) + vstut * fixed(0.5);
+        fixed phase = (fixed(step) + acc / interval) / STEPS;
+        fixed scale = fixed(0.85) + vpitch * fixed(0.15);            // pitch gently scales the whole thing
+
         for(int i = 0; i < RES; ++i)
         {
-            fixed a = fixed(i) * 360 / RES + rot;
-            fixed e = fixed(banks::env[bank][i]) / 255;                       // real amplitude 0..1
-            fixed R = 26 + e * 30 + (flash > 0 ? fixed(flash) : fixed(0));    // radius = loudness (+pulse)
-            fixed d = 2 + e * 5 + (i == playidx ? fixed(4) : fixed(0));       // playhead swells
-            ring[i].pos(cos(a) * R, sin(a) * R).diameter(d);
+            fixed eo = venv[i], ei = venv[RES - 1 - i];             // eased (morphing) amplitudes
+            fixed ao = fixed(i) * 360 / RES + rot;
+            fixed ai = fixed(i) * 360 / RES + rot2;
+            ring [i].pos(cos(ao) * (30 + eo * 28) * Z * scale, sin(ao) * (30 + eo * 28) * Z * scale).diameter(2 + eo * 5);
+            ring2[i].pos(cos(ai) * (12 + ei * 14) * Z * scale, sin(ai) * (12 + ei * 14) * Z * scale).diameter(1 + ei * 3);
         }
-        core->pos(0, 0).diameter(flash > 0 ? map(fixed(flash), 0, 8, 4, 22) : 4).fill(c);
+
+        fixed ca = phase * 360 + rot, cr = 62 * Z * scale;
+        for(int k = 0; k < TRAIL; ++k)
+        {
+            fixed ka = ca - fixed(k) * 9;
+            comet[k].pos(cos(ka) * cr, sin(ka) * cr).diameter(7 - k);
+        }
+
+        core->pos(0, 0).diameter(map(flashF, 0, 1, 5 * Z, 22)).fill(c);
+
         for(int i = 0; i < NP; ++i)
         {
-            if(plife[i] > 0) { pbody[i].integrate(); pbody[i].damp(fixed(0.9)); --plife[i];
-                               parts[i].pos(pbody[i].x, pbody[i].y).diameter(map(fixed(plife[i]), 0, 24, 1, 6)).show(true); }
-            else             parts[i].show(false);
+            if(plife[i] > 0)
+            {
+                pbody[i].kick(-pbody[i].x * fixed(0.01), -pbody[i].y * fixed(0.01));
+                pbody[i].damp(fixed(0.95)); pbody[i].integrate(); --plife[i];
+                parts[i].pos(pbody[i].x, pbody[i].y).diameter(map(fixed(plife[i]), 0, 28, 1, 6)).show(true);
+            }
+            else parts[i].show(false);
         }
 
         hud->clear();
         hud->align_center();
-        hud->print(0, 66, bn::string<24>(banks::name[bank]) + "   " + bn::to_string<8>(bpm) + " BPM");
+        hud->print(0, 68, bn::string<24>(banks::name[bank]) + "   " + bn::to_string<8>(bpm) + " BPM");
         hud->align_right();
         hud->print(right - 4, top + 4, "info");
-        hud->tint(T::dim);
+        hud->tint(mix(T::dim, T::bright, drift));
     }
     else
     {
-        // ---- EXPLAIN: labelled control panel ----
         for(int i = 0; i < STEPS; ++i)
             dots[i].radius(i == step ? 6 : (i == 0 ? 4 : 2));
-        vu->pos(0, -2).radius(flash > 0 ? map(fixed(flash), 0, 8, 5, 18) : 5).fill(c);
+        vu->pos(0, -2).radius(map(flashF, 0, 1, 5, 18)).fill(c);
 
         const char* brk = "";
         if(repeating) { if(down(key::UP)) brk = " build"; else if(down(key::DOWN)) brk = " stop";
@@ -196,6 +237,7 @@ void pk::update()
         hud->print(right - 4, top + 4, "zen>");
         hud->tint(T::fg);
     }
+    (void)downbeat;
 }
 
 int main() { pk::run(); }
