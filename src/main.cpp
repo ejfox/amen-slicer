@@ -16,6 +16,7 @@ namespace
     int step  = 0;
     int bank  = 0;
     int flash = 0;
+    int upd   = 0, dnd = 0;                 // build/tape-stop ramp counters
 
     bn::vector<pk::Circle, STEPS> dots;
     bn::optional<pk::Circle>      vu;
@@ -51,28 +52,46 @@ void pk::setup()
 
 void pk::update()
 {
-    // stretch (repitch) — Up/Down
-    if(down(key::UP))   speed = clamp(speed + fixed(0.015), fixed(0.4), fixed(2.5));
-    if(down(key::DOWN)) speed = clamp(speed - fixed(0.015), fixed(0.4), fixed(2.5));
-
-    // flavor select — Select / d-pad Left-Right — reset the clock so it doesn't glitch
-    if(pressed(key::SELECT) || pressed(key::RIGHT)) { bank = (bank + 1) % banks::COUNT; acc = 0; }
-    if(pressed(key::LEFT))                          { bank = (bank + banks::COUNT - 1) % banks::COUNT; acc = 0; }
-
     fixed rmult     = repeat_mult();
-    bool  repeating = rmult > 0;
-    fixed interval  = (repeating ? banks::step[bank] * rmult : banks::step[bank]) / speed;
+    bool  repeating = rmult > 0;                      // any stutter button held?
+
+    // pitch + step-rate for playback; the d-pad modulates these while stuttering
+    fixed fxpitch = speed, fxrate = speed;
+    if(repeating)
+    {
+        // HOLD A STUTTER + ARROWS = stacked breakdown FX
+        if(down(key::UP))   { upd = upd + 1 > 90 ? 90 : upd + 1;               // accelerating BUILD
+                              fixed r = 1 + fixed(upd) * fixed(0.03); fxpitch = speed * r; fxrate = speed * r; }
+        else                  upd = 0;
+        if(down(key::DOWN)) { dnd = dnd + 1 > 90 ? 90 : dnd + 1;               // TAPE STOP (slow + drop)
+                              fixed r = clamp(1 - fixed(dnd) * fixed(0.012), fixed(0.2), fixed(1)); fxpitch = speed * r; fxrate = speed * r; }
+        else                  dnd = 0;
+        if(down(key::RIGHT))  fxpitch = fxpitch * fixed(1.5);                  // pitch UP (hype)
+        if(down(key::LEFT))   fxpitch = fxpitch * fixed(0.6);                  // pitch DOWN (screw)
+    }
+    else
+    {
+        upd = 0; dnd = 0;
+        if(down(key::UP))       speed = clamp(speed + fixed(0.015), fixed(0.4), fixed(2.5));  // stretch
+        if(down(key::DOWN))     speed = clamp(speed - fixed(0.015), fixed(0.4), fixed(2.5));
+        if(pressed(key::RIGHT)) { bank = (bank + 1) % banks::COUNT; acc = 0; }                // flavor
+        if(pressed(key::LEFT))  { bank = (bank + banks::COUNT - 1) % banks::COUNT; acc = 0; }
+    }
+    if(pressed(key::SELECT)) { bank = (bank + 1) % banks::COUNT; acc = 0; }    // flavor also on SELECT
+
+    fixed interval = (repeating ? banks::step[bank] * rmult : banks::step[bank]) / fxrate;
 
     // START = jump straight to the 1 (downbeat) and hit it this frame
     if(pressed(key::START)) { step = 0; acc = interval; }
 
-    // clock — trigger a slice when the accumulator crosses the (stretched) step
+    // clock — trigger a slice when the accumulator crosses the step
     acc += 1;
     if(acc >= interval)
     {
         acc -= interval;
         bool downbeat = (step == 0);
-        banks::slices[bank][step]->play(repeating ? fixed(0.7) : fixed(0.9), speed, 0);
+        banks::slices[bank][step]->play(repeating ? fixed(0.7) : fixed(0.9),
+                                        clamp(fxpitch, fixed(0.1), fixed(6)), 0);
         flash = downbeat ? 8 : 4;                    // bigger pulse on the 1
         if(! repeating) step = (step + 1) % STEPS;   // stutter freezes the current slice
     }
@@ -86,6 +105,16 @@ void pk::update()
     // BPM = native tempo of this flavor, scaled by stretch  (900 / frames-per-16th)
     int bpm = (fixed(900) * speed / banks::step[bank] + fixed(0.5)).integer();
 
+    // active breakdown FX (arrows while stuttering)
+    const char* brk = "";
+    if(repeating)
+    {
+        if(down(key::UP))         brk = " build";
+        else if(down(key::DOWN))  brk = " stop";
+        else if(down(key::RIGHT)) brk = " up";
+        else if(down(key::LEFT))  brk = " down";
+    }
+
     // ---- self-explaining control panel ----
     hud->clear();
     hud->align_center();
@@ -93,8 +122,8 @@ void pk::update()
     hud->print(0,  14, bn::string<32>("< ") + banks::name[bank] + " >   "
                         + bn::to_string<8>(bpm) + " BPM");
     hud->print(0,  32, "UP/DN speed    START = 1");
-    hud->print(0,  48, bn::string<32>("SEL flavor     FX ") + repeat_name());
-    hud->print(0,  63, "stutter  A16 B32 L8 R64");
+    hud->print(0,  48, bn::string<32>("SEL flavor   FX ") + repeat_name() + brk);
+    hud->print(0,  63, "stutter+arrows A16 B32 L8 R64");
     hud->tint(vulpes::teal);
 }
 
