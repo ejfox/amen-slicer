@@ -1,0 +1,35 @@
+# clangd config for this Butano/GBA project. Read automatically by BOTH the
+# VSCode clangd extension and Neovim's clangd (LazyVim). Gives clangd the ARM
+# cross-compile include paths + defines so completion / go-to-def / hover work.
+#
+# Regenerate the flags below with:  make -n | grep arm-none-eabi-g++
+# (paths are pinned to devkitARM 16.1.0 — bump the version if the toolchain updates)
+
+CompileFlags:
+  Compiler: /opt/devkitpro/devkitARM/bin/arm-none-eabi-g++
+  Add:
+    - --target=arm-none-eabi
+    - -std=c++23
+    # --- project + butano includes ---
+    - -I/Users/ejfox/dev/gba/amen/include
+    - -I/Users/ejfox/dev/gba/amen/build
+    - -I/Users/ejfox/dev/gba/butano/common/include
+    - -I/Users/ejfox/dev/gba/butano/butano/include
+    - -I/Users/ejfox/dev/gba/butano/butano/hw/3rd_party/libtonc/include
+    - -I/Users/ejfox/dev/gba/butano/butano/hw/3rd_party/libugba/include
+    - -I/Users/ejfox/dev/gba/butano/butano/hw/3rd_party/maxmod/include
+    # --- arm-none-eabi system headers (so <cstdint>, <vector>, etc. resolve) ---
+    - -isystem/opt/devkitpro/devkitARM/arm-none-eabi/include/c++/16.1.0
+    - -isystem/opt/devkitpro/devkitARM/arm-none-eabi/include/c++/16.1.0/arm-none-eabi
+    - -isystem/opt/devkitpro/devkitARM/arm-none-eabi/include/c++/16.1.0/backward
+    - -isystem/opt/devkitpro/devkitARM/lib/gcc/arm-none-eabi/16.1.0/include
+    - -isystem/opt/devkitpro/devkitARM/lib/gcc/arm-none-eabi/16.1.0/include-fixed
+    - -isystem/opt/devkitpro/devkitARM/arm-none-eabi/include
+    # --- butano build defines ---
+    - -D__GBA__
+    - -DBN_AUDIO_BACKEND_MAXMOD
+    - -DBN_DMG_AUDIO_BACKEND_DEFAULT
+
+Diagnostics:
+  UnusedIncludes: None
+  MissingIncludes: None

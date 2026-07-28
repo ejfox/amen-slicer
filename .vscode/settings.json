@@ -1,0 +1,19 @@
+{
+  // LSP for GBA/Butano C++ is clangd, driven by the project's .clangd file.
+  // Uses the newest clangd (Homebrew LLVM); falls back gracefully if missing.
+  "clangd.path": "/usr/local/opt/llvm/bin/clangd",
+  "clangd.arguments": [
+    "--background-index",
+    "--header-insertion=never",
+    "--completion-style=detailed",
+    "--pch-storage=memory"
+  ],
+  // Turn off Microsoft C/C++ IntelliSense so it doesn't fight clangd.
+  "C_Cpp.intelliSenseEngine": "disabled",
+  "files.associations": {
+    "*.h": "cpp"
+  },
+  "[cpp]": {
+    "editor.formatOnSave": false
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "options": {
+    "env": {
+      "DEVKITPRO": "/opt/devkitpro",
+      "DEVKITARM": "/opt/devkitpro/devkitARM",
+      "PATH": "/opt/devkitpro/tools/bin:${env:PATH}"
+    }
+  },
+  "tasks": [
+    {
+      "label": "build",
+      "type": "shell",
+      "command": "make -j$(sysctl -n hw.ncpu)",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "build + run (mGBA)",
+      "type": "shell",
+      "command": "make -j$(sysctl -n hw.ncpu) && open -a mGBA minigame.gba",
+      "problemMatcher": "$gcc"
+    },
+    {
+      "label": "hot loop (dev.sh)",
+      "type": "shell",
+      "command": "tools/dev.sh",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "clean",
+      "type": "shell",
+      "command": "make clean",
+      "problemMatcher": []
+    }
+  ]
+}
