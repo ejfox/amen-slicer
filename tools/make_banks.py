@@ -9,6 +9,7 @@ table + per-bank step timing). Run from the project root.
 """
 import subprocess, wave, os
 import numpy as np
+from PIL import Image, ImageDraw
 
 RATE = 16000
 FPS  = 59.7275                # real GBA refresh rate (NOT 60) — keeps tempo accurate for sync
@@ -35,6 +36,7 @@ BANKS = [
 ]
 SLICES, FADE = 16, 16
 ENV_RES = 24                  # waveform-envelope resolution baked in for zen-mode viz
+WAVE_W, WAVE_H = 64, 32        # per-bank waveform sprite (real audio, one frame each)
 
 def duration(path):
     out = subprocess.run(["ffprobe","-v","error","-show_entries","format=duration",
@@ -47,6 +49,8 @@ for f in os.listdir("audio"):
     if f.endswith(".wav"): os.remove(os.path.join("audio", f))
 
 steps, envs = [], []
+wsheet = Image.new("RGBA", (WAVE_W, WAVE_H * len(BANKS)), (0, 0, 0, 0))   # waveform sprite sheet
+wdraw  = ImageDraw.Draw(wsheet)
 for bi, (label, path, barov) in enumerate(BANKS):
     dur  = duration(path)
     if barov:  bar = barov                              # explicit bar (retempo'd remixes)
@@ -62,6 +66,12 @@ for bi, (label, path, barov) in enumerate(BANKS):
                   for c in np.array_split(np.abs(x), ENV_RES)])
     e = np.clip(np.round(e / max(1e-6, e.max()) * 255), 0, 255).astype(int)
     envs.append(e)
+
+    # draw this bank's real waveform into its frame of the sprite sheet
+    cy0 = bi * WAVE_H + WAVE_H // 2
+    for cx, col in enumerate(np.array_split(np.abs(x), WAVE_W)):
+        h = int((col.max() if col.size else 0.0) * (WAVE_H // 2 - 1))
+        wdraw.line([(cx, cy0 - h), (cx, cy0 + h)], fill=(255, 255, 255, 255))
 
     slen = x.size // SLICES
     for i in range(SLICES):
@@ -99,4 +109,10 @@ with open("include/banks.h", "w") as h:
     h.write("    };\n")
     h.write("}\n\n#endif\n")
 
-print(f"wrote {len(BANKS)*SLICES} slices + include/banks.h")
+# waveform sprite sheet -> BMP for grit
+wsheet.save("art/waves.png")
+subprocess.run(["python3", "tools/png2bmp.py", "art/waves.png", "graphics/waves.bmp"], check=True)
+with open("graphics/waves.json", "w") as j:
+    j.write('{\n    "type": "sprite",\n    "height": 32\n}\n')
+
+print(f"wrote {len(BANKS)*SLICES} slices + include/banks.h + graphics/waves.bmp ({len(BANKS)} frames)")
