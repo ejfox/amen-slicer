@@ -21,20 +21,21 @@ namespace
     bn::optional<pk::Circle>      vu;
     bn::optional<pk::Text>        hud;
 
+    // A=1/16  B=1/32  L=1/8  R=1/64  (checked fastest-first so it wins if multiple held)
     bn::fixed repeat_mult()
     {
         if(pk::down(pk::key::R)) return bn::fixed(0.25); // 1/64
-        if(pk::down(pk::key::L)) return bn::fixed(0.5);  // 1/32
-        if(pk::down(pk::key::B)) return 1;               // 1/16
-        if(pk::down(pk::key::A)) return 2;               // 1/8
+        if(pk::down(pk::key::B)) return bn::fixed(0.5);  // 1/32
+        if(pk::down(pk::key::A)) return 1;               // 1/16
+        if(pk::down(pk::key::L)) return 2;               // 1/8
         return 0;
     }
     const char* repeat_name()
     {
         if(pk::down(pk::key::R)) return "1/64";
-        if(pk::down(pk::key::L)) return "1/32";
-        if(pk::down(pk::key::B)) return "1/16";
-        if(pk::down(pk::key::A)) return "1/8";
+        if(pk::down(pk::key::B)) return "1/32";
+        if(pk::down(pk::key::A)) return "1/16";
+        if(pk::down(pk::key::L)) return "1/8";
         return "off";
     }
 }
@@ -51,33 +52,36 @@ void pk::setup()
 void pk::update()
 {
     // stretch (repitch) — Up/Down
-    if(down(key::UP))       speed = clamp(speed + fixed(0.015), fixed(0.4), fixed(2.5));
-    if(down(key::DOWN))     speed = clamp(speed - fixed(0.015), fixed(0.4), fixed(2.5));
-    if(pressed(key::START)) speed = 1;
+    if(down(key::UP))   speed = clamp(speed + fixed(0.015), fixed(0.4), fixed(2.5));
+    if(down(key::DOWN)) speed = clamp(speed - fixed(0.015), fixed(0.4), fixed(2.5));
 
     // flavor select — Select / d-pad Left-Right — reset the clock so it doesn't glitch
     if(pressed(key::SELECT) || pressed(key::RIGHT)) { bank = (bank + 1) % banks::COUNT; acc = 0; }
     if(pressed(key::LEFT))                          { bank = (bank + banks::COUNT - 1) % banks::COUNT; acc = 0; }
 
-    // clock — trigger a slice when the accumulator crosses the (stretched) step
     fixed rmult     = repeat_mult();
     bool  repeating = rmult > 0;
     fixed interval  = (repeating ? banks::step[bank] * rmult : banks::step[bank]) / speed;
 
+    // START = jump straight to the 1 (downbeat) and hit it this frame
+    if(pressed(key::START)) { step = 0; acc = interval; }
+
+    // clock — trigger a slice when the accumulator crosses the (stretched) step
     acc += 1;
     if(acc >= interval)
     {
         acc -= interval;
+        bool downbeat = (step == 0);
         banks::slices[bank][step]->play(repeating ? fixed(0.7) : fixed(0.9), speed, 0);
-        flash = 4;
+        flash = downbeat ? 8 : 4;                    // bigger pulse on the 1
         if(! repeating) step = (step + 1) % STEPS;   // stutter freezes the current slice
     }
     if(flash > 0) --flash;
 
-    // ---- visuals ----
+    // ---- visuals (step 0 is marked as the downbeat) ----
     for(int i = 0; i < STEPS; ++i)
-        dots[i].radius(i == step ? 5 : 2);
-    vu->pos(0, -2).radius(flash > 0 ? map(fixed(flash), 0, 4, 5, 16) : 5);
+        dots[i].radius(i == step ? 6 : (i == 0 ? 4 : 2));
+    vu->pos(0, -2).radius(flash > 0 ? map(fixed(flash), 0, 8, 5, 18) : 5);
 
     // BPM = native tempo of this flavor, scaled by stretch  (900 / frames-per-16th)
     int bpm = (fixed(900) * speed / banks::step[bank] + fixed(0.5)).integer();
@@ -86,10 +90,11 @@ void pk::update()
     hud->clear();
     hud->align_center();
     hud->print(0, -64, "AMEN SLICER");
-    hud->print(0,  16, bn::string<32>("< ") + banks::name[bank] + " >   "
+    hud->print(0,  14, bn::string<32>("< ") + banks::name[bank] + " >   "
                         + bn::to_string<8>(bpm) + " BPM");
-    hud->print(0,  34, "UP/DN speed   SEL flavor");
-    hud->print(0,  50, bn::string<32>("A B L R stutter  ") + repeat_name());
+    hud->print(0,  32, "UP/DN speed    START = 1");
+    hud->print(0,  48, bn::string<32>("SEL flavor     FX ") + repeat_name());
+    hud->print(0,  63, "stutter  A16 B32 L8 R64");
     hud->tint(vulpes::teal);
 }
 
