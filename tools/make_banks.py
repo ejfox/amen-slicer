@@ -36,7 +36,8 @@ BANKS = [
 ]
 SLICES, FADE = 16, 16
 ENV_RES = 24                  # waveform-envelope resolution baked in for zen-mode viz
-WAVE_W, WAVE_H = 64, 32        # per-bank waveform sprite (real audio, one frame each)
+WAVE_H, SEG_W, NSEG = 32, 64, 4   # full-width waveform = NSEG 64px sprite segments (4*64=256)
+FULL_W = SEG_W * NSEG
 
 def duration(path):
     out = subprocess.run(["ffprobe","-v","error","-show_entries","format=duration",
@@ -49,8 +50,8 @@ for f in os.listdir("audio"):
     if f.endswith(".wav"): os.remove(os.path.join("audio", f))
 
 steps, envs = [], []
-wsheet = Image.new("RGBA", (WAVE_W, WAVE_H * len(BANKS)), (0, 0, 0, 0))   # waveform sprite sheet
-wdraw  = ImageDraw.Draw(wsheet)
+# waveform sheet: NSEG segment-frames per bank (frame = bank*NSEG + segment)
+wsheet = Image.new("RGBA", (SEG_W, WAVE_H * NSEG * len(BANKS)), (0, 0, 0, 0))
 for bi, (label, path, barov) in enumerate(BANKS):
     dur  = duration(path)
     if barov:  bar = barov                              # explicit bar (retempo'd remixes)
@@ -67,11 +68,16 @@ for bi, (label, path, barov) in enumerate(BANKS):
     e = np.clip(np.round(e / max(1e-6, e.max()) * 255), 0, 255).astype(int)
     envs.append(e)
 
-    # draw this bank's real waveform into its frame of the sprite sheet
-    cy0 = bi * WAVE_H + WAVE_H // 2
-    for cx, col in enumerate(np.array_split(np.abs(x), WAVE_W)):
+    # render the full-width (256px) waveform, then paste it as NSEG 64px frames
+    band = Image.new("RGBA", (FULL_W, WAVE_H), (0, 0, 0, 0))
+    bd = ImageDraw.Draw(band)
+    cy = WAVE_H // 2
+    for cx, col in enumerate(np.array_split(np.abs(x), FULL_W)):
         h = int((col.max() if col.size else 0.0) * (WAVE_H // 2 - 1))
-        wdraw.line([(cx, cy0 - h), (cx, cy0 + h)], fill=(255, 255, 255, 255))
+        bd.line([(cx, cy - h), (cx, cy + h)], fill=(255, 255, 255, 255))
+    for s in range(NSEG):
+        seg = band.crop((s * SEG_W, 0, (s + 1) * SEG_W, WAVE_H))
+        wsheet.paste(seg, (0, (bi * NSEG + s) * WAVE_H))
 
     slen = x.size // SLICES
     for i in range(SLICES):

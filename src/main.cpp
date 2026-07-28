@@ -27,7 +27,7 @@ namespace
 
     fixed vspeed = 1, vstut = 0, vpitch = 1, flashF = 0, vmotion = 1, venv[RES] = { 0 };
     pk::Spring zoom;
-    bn::optional<bn::sprite_ptr> wsp;   // real waveform sprite (frame = bank)
+    bn::vector<bn::sprite_ptr, 4> wsp;   // full-width waveform = 4 x 64px segments
     int waveBank = -1;
 
     // BIG IMPACTS: an expanding shockwave ring + a screen flash
@@ -112,8 +112,7 @@ void pk::setup()
 {
     background(T::bg);
     hud.emplace();
-    wsp = bn::sprite_items::waves.create_sprite(0, -24, 0);
-    wsp->set_z_order(3);                 // behind the circles
+    for(int s = 0; s < 4; ++s) { wsp.push_back(bn::sprite_items::waves.create_sprite(-96 + s * 64, -24, s)); wsp[s].set_z_order(3); }
     build_explain();
 }
 
@@ -169,6 +168,7 @@ void pk::update()
     if(acc >= masterInterval) { acc -= masterInterval; step = (step + 1) % STEPS; masterTick = true; }
 
     bool downbeat = false;
+    fixed subphase = 0;
     auto hitv = [&](int idx)
     {
         voice = banks::slices[bank][idx]->play(repeating ? fixed(0.7) : fixed(0.9), clamp(fxpitch, fixed(0.1), fixed(6)), 0);
@@ -187,6 +187,7 @@ void pk::update()
         fixed stutInterval = masterInterval * rmult / (1 + fixed(upd) * fixed(0.04));
         sacc += 1;
         if(sacc >= stutInterval) { sacc -= stutInterval; hitv(froz); }
+        subphase = clamp(sacc / stutInterval, fixed(0), fixed(1));   // 0..1 across the frozen slice
     }
     else { sacc = 0; if(masterTick) hitv(step); }
 
@@ -203,7 +204,7 @@ void pk::update()
     if(vmotion > fixed(0.1))
         for(int i = 0; i < RES; ++i) venv[i] = approach(venv[i], fixed(banks::env[bank][i]) / 255, fixed(0.09));
 
-    if(bank != waveBank) { wsp->set_item(bn::sprite_items::waves, bank); waveBank = bank; }   // swap waveform
+    if(bank != waveBank) { for(int s = 0; s < 4; ++s) wsp[s].set_item(bn::sprite_items::waves, bank * 4 + s); waveBank = bank; }
 
     int bpm = (BPM_K * speed / banks::step[bank] + fixed(0.5)).integer();
 
@@ -216,6 +217,12 @@ void pk::update()
     if(cChaos)     c = ((frame / 3) % 2 == 0) ? T::cyan : T::glow;    // hard strobe
     else if(cPlus) c = mix(c, T::glow, fixed(0.5));
 
+    // playhead position: normally sweeps the loop; while repeating it LOOPS the
+    // frozen slice (visualizes the repeat instead of advancing).
+    fixed vizphase = repeating ? (fixed(froz) + subphase) / STEPS
+                               : (fixed(step) + acc / masterInterval) / STEPS;
+    fixed playx = map(vizphase, 0, 1, -120, 120);
+
     // screen flash on impacts (both modes)
     if(bgflash > 0) --bgflash;
     background(bgflash > 0 ? mix(T::bg, T::glow, fixed(bgflash) / 12) : T::bg);
@@ -227,7 +234,6 @@ void pk::update()
         fixed Z = clamp(zp, fixed(0.4), fixed(2)) * (1 - vstut * fixed(0.15));
         rot  += (fixed(0.3) + vspeed * fixed(0.5) + vstut * fixed(0.8) + fixed(upd) * fixed(0.06) - fixed(dnd) * fixed(0.05) + (cChaos ? fixed(7) : fixed(0))) * vmotion;
         rot2 -= (fixed(0.5) + vspeed * fixed(0.35) + vstut * fixed(0.5) + (cChaos ? fixed(9) : fixed(0))) * vmotion;
-        fixed phase = (fixed(step) + acc / masterInterval) / STEPS;
         fixed scale = fixed(0.85) + vpitch * fixed(0.15);
 
         for(int i = 0; i < RES; ++i)
@@ -239,7 +245,7 @@ void pk::update()
             ring [i].plus(P).pos(cos(ao) * Ro * Z * scale, sin(ao) * Ro * Z * scale).diameter(2 + eo * 5);
             ring2[i].plus(P).pos(cos(ai) * Ri * Z * scale, sin(ai) * Ri * Z * scale).diameter(1 + ei * 3);
         }
-        fixed ca = phase * 360 + rot, cr = 62 * Z * scale;
+        fixed ca = vizphase * 360 + rot, cr = 62 * Z * scale;   // comet loops the frozen slice while repeating
         for(int k = 0; k < TRAIL; ++k)
         { fixed ka = ca - fixed(k) * 9; comet[k].plus(P).pos(cos(ka) * cr, sin(ka) * cr).diameter(7 - k); }
 
@@ -268,9 +274,9 @@ void pk::update()
         }
         else for(int i = 0; i < SHOCKN; ++i) shock[i].show(false);
 
-        // real waveform as a faint backdrop behind the mandala
-        { bn::sprite_palette_ptr wp = wsp->palette(); wp.set_fade(T::deep, 1); }
-        wsp->set_position(0, 0); wsp->set_visible(true);
+        // real waveform, faint, full-width behind the mandala
+        { bn::sprite_palette_ptr wp = wsp[0].palette(); wp.set_fade(T::deep, 1); }
+        for(int s = 0; s < 4; ++s) { wsp[s].set_position(-96 + s * 64, 0); wsp[s].set_visible(true); }
 
         hud->clear();
         hud->align_center();
@@ -281,11 +287,10 @@ void pk::update()
     }
     else
     {
-        // real waveform of this flavor, with the playhead sweeping across it
-        { bn::sprite_palette_ptr wp = wsp->palette(); wp.set_fade(T::base, 1); }
-        wsp->set_position(0, -26); wsp->set_visible(true);
-        fixed phx = map(fixed(step) + acc / masterInterval, 0, STEPS, -28, 28);
-        vu->pos(phx, -26).radius(map(flashF, 0, 1, 4, 11)).fill(c);
+        // full-width waveform; playhead sweeps it, or loops the frozen slice on a repeat
+        { bn::sprite_palette_ptr wp = wsp[0].palette(); wp.set_fade(T::base, 1); }
+        for(int s = 0; s < 4; ++s) { wsp[s].set_position(-96 + s * 64, -26); wsp[s].set_visible(true); }
+        vu->pos(playx, -26).radius(map(flashF, 0, 1, 4, 11)).fill(c);
 
         const char* brk = "";
         if(repeating) { if(down(key::UP)) brk = " build"; else if(down(key::DOWN)) brk = " stop";
