@@ -134,9 +134,9 @@ void pk::update()
 
     fixed interval = (repeating ? banks::step[bank] * rmult : banks::step[bank]) / fxrate;
 
-    if(down(key::SELECT) && pressed(key::START)) { zen = ! zen; if(zen) build_zen(); else build_explain(); zoom.vel += fixed(0.5); }
-    else if(pressed(key::START))                 { step = 0; acc = interval; zoom.vel += fixed(0.7); flashF = 1; }
-    if(pressed(key::SELECT) && ! down(key::START)) { bank = (bank + 1) % banks::COUNT; acc = 0; zoom.vel += fixed(0.3); }
+    // SELECT = toggle zen/explain (single tap). START = back to the 1.
+    if(pressed(key::SELECT)) { zen = ! zen; if(zen) build_zen(); else build_explain(); zoom.vel += fixed(0.5); }
+    if(pressed(key::START))  { step = 0; acc = interval; zoom.vel += fixed(0.7); flashF = 1; }
 
     // ---- clock ----
     bool downbeat = false;
@@ -211,7 +211,7 @@ void pk::update()
         hud->align_center();
         hud->print(0, 68, bn::string<24>(banks::name[bank]) + "   " + bn::to_string<8>(bpm) + " BPM");
         hud->align_right();
-        hud->print(right - 4, top + 4, "info");
+        hud->print(right - 4, top + 4, "SEL=info");
         hud->tint(mix(T::dim, T::bright, drift));
     }
     else
@@ -231,10 +231,10 @@ void pk::update()
         hud->align_center();
         hud->print(0, -50, "AMEN SLICER");
         hud->print(0,  26, l2);
-        hud->print(0,  42, "UP/DN spd  SEL flav  ST=1");
+        hud->print(0,  42, "UP/DN spd  L/R flav  ST=1");
         hud->print(0,  58, "A16 B32 L8 R64  +arrows");
         hud->align_right();
-        hud->print(right - 4, top + 4, "zen>");
+        hud->print(right - 4, top + 4, "SEL=zen");
         hud->tint(T::fg);
     }
     (void)downbeat;
