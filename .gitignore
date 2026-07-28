@@ -2,3 +2,7 @@ build/
 *.gba
 *.elf
 *.sav
+
+# generated from EJ's amen pack — regenerate with tools/make_banks.py
+audio/bk*.wav
+include/banks.h
