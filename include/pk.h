@@ -95,6 +95,21 @@ namespace pk
         constexpr color white       = hex(0xffffff);
     }
 
+    // "Atomic Purple" — the translucent-purple Game Boy on OLED black.
+    // Electric grape violet + lavender, pure-black background.
+    namespace atomic
+    {
+        constexpr color bg     = hex(0x000000);  // OLED black
+        constexpr color deep   = hex(0x4b0082);  // deep indigo-purple
+        constexpr color base   = hex(0xa020f0);  // atomic purple (the signature)
+        constexpr color bright = hex(0xc77dff);  // lit lavender
+        constexpr color glow   = hex(0xe0b0ff);  // pale glow
+        constexpr color fg     = hex(0xd9b8ff);  // lavender text
+        constexpr color dim    = hex(0x7b5aa6);  // muted purple
+        constexpr color cyan   = hex(0x36e0d0);  // cool contrast accent
+        constexpr color white  = hex(0xffffff);
+    }
+
     // ---- screen -------------------------------------------------------------
     inline constexpr int   width  = bn::display::width();   // 240
     inline constexpr int   height = bn::display::height();  // 160
@@ -226,6 +241,7 @@ namespace pk
         void clear() { _sprites.clear(); }
         Text& align_left()   { _gen.set_left_alignment();   return *this; }
         Text& align_center() { _gen.set_center_alignment(); return *this; }
+        Text& align_right()  { _gen.set_right_alignment();  return *this; }
         void print(fixed x, fixed y, const bn::string_view& s) { _gen.generate(x, y, s, _sprites); }
         void print(const bn::fixed_point& p, const bn::string_view& s) { _gen.generate(p, s, _sprites); }
         // Recolor the text's glyph fill, keeping its black outline. The common

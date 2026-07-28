@@ -26,6 +26,7 @@ BANKS = [
     ("2000xl",  f"{PACK}/Fanu/amen-2000xl-quieterer.wav"),
 ]
 SLICES, FADE = 16, 16
+ENV_RES = 24                  # waveform-envelope resolution baked in for zen-mode viz
 
 def duration(path):
     out = subprocess.run(["ffprobe","-v","error","-show_entries","format=duration",
@@ -37,7 +38,7 @@ os.makedirs("audio", exist_ok=True)
 for f in os.listdir("audio"):
     if f.endswith(".wav"): os.remove(os.path.join("audio", f))
 
-steps = []
+steps, envs = [], []
 for bi, (label, path) in enumerate(BANKS):
     dur  = duration(path)
     bars = max(1, round(dur / BAR_GUESS))
@@ -47,6 +48,13 @@ for bi, (label, path) in enumerate(BANKS):
                           capture_output=True).stdout
     x = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
     x = np.clip(x / max(1e-6, float(np.abs(x).max())) * 0.95, -1.0, 1.0)
+
+    # waveform envelope: RMS of ENV_RES equal chunks of the bar, 0..255
+    e = np.array([np.sqrt(np.mean(c**2)) if c.size else 0.0
+                  for c in np.array_split(np.abs(x), ENV_RES)])
+    e = np.clip(np.round(e / max(1e-6, e.max()) * 255), 0, 255).astype(int)
+    envs.append(e)
+
     slen = x.size // SLICES
     for i in range(SLICES):
         c = x[i*slen:(i+1)*slen].copy()
@@ -75,7 +83,12 @@ with open("include/banks.h", "w") as h:
     h.write("    inline const bn::fixed step[COUNT] = { "
             + ", ".join(f"bn::fixed({s:.4f})" for s in steps) + " };\n")
     h.write("    inline const char* name[COUNT] = { "
-            + ", ".join(f'"{lbl}"' for lbl, _ in BANKS) + " };\n")
+            + ", ".join(f'"{lbl}"' for lbl, _ in BANKS) + " };\n\n")
+    h.write(f"    constexpr int ENV_RES = {ENV_RES};\n")
+    h.write("    inline const unsigned char env[COUNT][ENV_RES] = {\n")
+    for e in envs:
+        h.write("        { " + ", ".join(str(v) for v in e) + " },\n")
+    h.write("    };\n")
     h.write("}\n\n#endif\n")
 
 print(f"wrote {len(BANKS)*SLICES} slices + include/banks.h")
