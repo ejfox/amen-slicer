@@ -23,7 +23,7 @@ namespace
 
     fixed speed = 1, acc = 0, sacc = 0, rot = 0, rot2 = 0;
     int step = 0, froz = 0, bank = 0, upd = 0, dnd = 0;
-    bool zen = false, wasRep = false, wasCombo = false, peaked = false;
+    bool zen = false, wasRep = false, wasCombo = false, peaked = false, crush = false;
 
     fixed vspeed = 1, vstut = 0, vpitch = 1, flashF = 0, vmotion = 1, venv[RES] = { 0 };
     pk::Spring zoom;
@@ -140,7 +140,8 @@ void pk::update()
         if(pressed(key::LEFT))  { bank = (bank + banks::COUNT - 1) % banks::COUNT; zoom.vel += fixed(0.3); }
     }
 
-    if(pressed(key::SELECT)) { zen = ! zen; if(zen) build_zen(); else build_explain(); zoom.vel += fixed(0.5); }
+    if(pressed(key::SELECT) && down(key::START)) crush = ! crush;   // SEL+START chord = downsample FX
+    else if(pressed(key::SELECT)) { zen = ! zen; if(zen) build_zen(); else build_explain(); zoom.vel += fixed(0.5); }
 
     // ---- WILD combos (visual; audio still stutters underneath) ----
     bool cPlus  = down(key::A) && down(key::B);      // circles -> + signs
@@ -152,7 +153,7 @@ void pk::update()
 
     fixed masterInterval = banks::step[bank] / speed;
 
-    if(pressed(key::START)) { step = 0; acc = 0; sacc = 0; flashF = 1; fire(16, 9); }   // slam to the 1
+    if(pressed(key::START) && ! down(key::SELECT)) { step = 0; acc = 0; sacc = 0; flashF = 1; fire(16, 9); }   // slam to the 1
 
     if(repeating && ! wasRep) froz = step;
     wasRep = repeating;
@@ -171,7 +172,7 @@ void pk::update()
     fixed subphase = 0;
     auto hitv = [&](int idx)
     {
-        voice = banks::slices[bank][idx]->play(repeating ? fixed(0.7) : fixed(0.9), clamp(fxpitch, fixed(0.1), fixed(6)), 0);
+        voice = (crush ? banks::slicesC : banks::slices)[bank][idx]->play(repeating ? fixed(0.7) : fixed(0.9), clamp(fxpitch, fixed(0.1), fixed(6)), 0);
         downbeat = (idx == 0);
         flashF = downbeat ? 1 : fixed(0.6);
         if(zen) { spawn_burst(idx, downbeat); zoom.vel += downbeat ? fixed(0.6) : fixed(0.28); if(downbeat) fire(8, 3); }
@@ -294,15 +295,16 @@ void pk::update()
         if(repeating) { if(down(key::UP)) brk = " build"; else if(down(key::DOWN)) brk = " stop";
                         else if(down(key::RIGHT)) brk = " up"; else if(down(key::LEFT)) brk = " down"; }
 
-        bn::string<40> l2 = bn::string<40>("< ") + banks::name[bank] + " >  " + bn::to_string<8>(bpm) + " BPM";
+        bn::string<48> l2 = bn::string<48>("< ") + banks::name[bank] + " >  " + bn::to_string<8>(bpm) + " BPM";
         if(repeating) l2 = l2 + "  " + repeat_name() + brk;
+        if(crush)     l2 = l2 + "  CRUSH";
 
         hud->clear();
         hud->align_center();
         hud->print(0, -50, "AMEN SLICER");
         hud->print(0,  26, l2);
         hud->print(0,  42, "UP/DN spd  L/R flav  ST=1");
-        hud->print(0,  58, "A16 B32 L8 R64  +arrows");
+        hud->print(0,  58, "A16 B32 L8 R64  SEL+ST=crush");
         hud->align_right();
         hud->print(right - 4, top + 4, "SEL=zen");
         hud->tint(T::fg);

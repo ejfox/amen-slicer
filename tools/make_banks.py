@@ -39,6 +39,16 @@ ENV_RES = 24                  # waveform-envelope resolution baked in for zen-mo
 WAVE_H, SEG_W, NSEG = 32, 64, 4   # full-width waveform = NSEG 64px sprite segments (4*64=256)
 FULL_W = SEG_W * NSEG
 
+def crush(sig, decim=4, levels=8):
+    # sample-rate reduce (sample-and-hold) + bit reduce = Game Boy grit
+    d = np.resize(np.repeat(sig[::decim], decim), len(sig))
+    return np.clip(np.round(d * (levels / 2)) / (levels / 2), -1.0, 1.0)
+
+def write_wav(name, sig):
+    b = np.clip(np.round(128 + sig * 120), 0, 255).astype(np.uint8).tobytes()
+    w = wave.open(f"audio/{name}.wav", "wb")
+    w.setnchannels(1); w.setsampwidth(1); w.setframerate(RATE); w.writeframes(b); w.close()
+
 def duration(path):
     out = subprocess.run(["ffprobe","-v","error","-show_entries","format=duration",
                           "-of","csv=p=0", path], capture_output=True, text=True).stdout.strip()
@@ -84,9 +94,8 @@ for bi, (label, path, barov) in enumerate(BANKS):
         c = x[i*slen:(i+1)*slen].copy()
         c[:FADE]  *= np.linspace(0, 1, FADE)
         c[-FADE:] *= np.linspace(1, 0, FADE)
-        b = np.clip(np.round(128 + c * 120), 0, 255).astype(np.uint8).tobytes()
-        w = wave.open(f"audio/bk{bi}s{i:02d}.wav", "wb")
-        w.setnchannels(1); w.setsampwidth(1); w.setframerate(RATE); w.writeframes(b); w.close()
+        write_wav(f"bk{bi}s{i:02d}",   c)          # clean
+        write_wav(f"bk{bi}s{i:02d}_c", crush(c))   # crushed (downsample FX)
     fstep = slen / RATE * FPS                            # frames per 16th at the true refresh rate
     steps.append(fstep)
     print(f"  bank {bi} {label:8s}  bar={bar:.3f}s  slice={slen}  frames/step={fstep:.4f}  {15*RATE/slen:.1f}bpm")
@@ -102,6 +111,11 @@ with open("include/banks.h", "w") as h:
     h.write("    inline const bn::sound_item* slices[COUNT][16] = {\n")
     for bi, _ in enumerate(BANKS):
         row = ", ".join(f"&bn::sound_items::bk{bi}s{i:02d}" for i in range(SLICES))
+        h.write(f"        {{ {row} }},\n")
+    h.write("    };\n\n")
+    h.write("    inline const bn::sound_item* slicesC[COUNT][16] = {   // crushed (downsample FX)\n")
+    for bi, _ in enumerate(BANKS):
+        row = ", ".join(f"&bn::sound_items::bk{bi}s{i:02d}_c" for i in range(SLICES))
         h.write(f"        {{ {row} }},\n")
     h.write("    };\n\n")
     h.write("    inline const bn::fixed step[COUNT] = { "
