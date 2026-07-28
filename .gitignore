@@ -6,3 +6,7 @@ build/
 # generated from EJ's amen pack — regenerate with tools/make_banks.py
 audio/bk*.wav
 include/banks.h
+
+# generated waveform (derived from the amen audio)
+graphics/waves.bmp
+art/waves.png

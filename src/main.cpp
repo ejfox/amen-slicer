@@ -1,9 +1,18 @@
-// AMEN SLICER — breakbeat slicer for GBA. Atomic-purple, OLED black.
-// Sync-locked master clock. EXPLAIN <-> ZEN via SELECT. START = tap to the 1.
-// ZEN goes UNHINGED on button combos:
-//   A+B  = glyphs become + signs      L+R = mandala turns inside-out
-//   A+B+L+R = CHAOS (strobe + hyperspin)
-//   downbeats / drops (build peak) / re-syncs fire screen-shaking shockwaves.
+// AMEN SLICER — a breakbeat slicer for Game Boy Advance (Butano + the pk layer).
+// 13 real amen versions, each chopped into 16 sixteenth-notes, on a sync-locked
+// clock with a reactive visualizer. Atomic-purple theme on OLED black.
+//
+// CONTROLS
+//   Up / Down          tempo / stretch (repitch; live BPM readout)
+//   Left / Right        previous / next flavor
+//   A / B / L / R       stutter 1/16, 1/32, 1/8, 1/64 (hold)
+//   hold stutter + arrow  breakdown FX — Up=build, Down=tape-stop, L/R=pitch
+//   START               tap the loop back to the 1 (align to an external downbeat)
+//   SELECT              toggle EXPLAIN <-> ZEN view
+//   SELECT + START      toggle CRUSH (downsample / bitcrush FX)
+//
+// ZEN combos: A+B = + signs, L+R = inside-out, A+B+L+R = chaos. Downbeats & drops
+// fire shockwaves; a tape-stop freezes the whole visual with the audio.
 #include "pk.h"
 #include "banks.h"
 
@@ -33,8 +42,7 @@ namespace
     // BIG IMPACTS: an expanding shockwave ring + a screen flash
     fixed shockR = 0, shockSpd = 0; bool shockOn = false; int bgflash = 0;
 
-    bn::vector<pk::Circle, STEPS> dots;
-    bn::optional<pk::Circle>      vu;
+    bn::optional<pk::Circle>      vu;         // explain: playhead over the waveform
     bn::vector<pk::Circle, RES>   ring, ring2;
     bn::vector<pk::Circle, TRAIL> comet;
     bn::vector<pk::Circle, NP>    parts;
@@ -74,12 +82,11 @@ namespace
     void build_explain()
     {
         ring.clear(); ring2.clear(); comet.clear(); parts.clear(); shock.clear(); core.reset();
-        dots.clear();
-        vu.emplace(); vu->fill(T::base);           // playhead over the waveform
+        vu.emplace(); vu->fill(T::base);
     }
     void build_zen()
     {
-        dots.clear(); vu.reset();
+        vu.reset();
         ring.clear();  for(int i = 0; i < RES; ++i)    ring.emplace_back();
         ring2.clear(); for(int i = 0; i < RES; ++i)    ring2.emplace_back();
         comet.clear(); for(int i = 0; i < TRAIL; ++i)  comet.emplace_back();
@@ -309,7 +316,6 @@ void pk::update()
         hud->print(right - 4, top + 4, "SEL=zen");
         hud->tint(T::fg);
     }
-    (void)masterTick; (void)downbeat;
 }
 
 int main() { pk::run(); }
