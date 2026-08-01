@@ -32,6 +32,7 @@ namespace
 
     fixed speed = 1, acc = 0, sacc = 0, rot = 0, rot2 = 0;
     int step = 0, froz = 0, bank = 0, upd = 0, dnd = 0;
+    int bpmSel = 170, bhold = 0;   // canonical integer tempo (always landable) + held-repeat counter
     bool zen = false, wasRep = false, wasCombo = false, peaked = false, crush = false;
 
     fixed vspeed = 1, vstut = 0, vpitch = 1, flashF = 0, vmotion = 1, venv[RES] = { 0 };
@@ -141,11 +142,20 @@ void pk::update()
     else
     {
         upd = 0; dnd = 0;
-        if(down(key::UP))       speed = clamp(speed + fixed(0.01), fixed(0.4), fixed(2.5));
-        if(down(key::DOWN))     speed = clamp(speed - fixed(0.01), fixed(0.4), fixed(2.5));
+        // Tempo: precise integer BPM. A tap = exactly +/-1; hold to scroll after a short delay.
+        int dir = 0;
+        if(pressed(key::UP))        { dir =  1; bhold = 0; }
+        else if(pressed(key::DOWN)) { dir = -1; bhold = 0; }
+        else if(down(key::UP))      { if(++bhold > 16 && bhold % 4 == 0) dir =  1; }
+        else if(down(key::DOWN))    { if(++bhold > 16 && bhold % 4 == 0) dir = -1; }
+        else bhold = 0;
+        if(dir) { bpmSel += dir; if(bpmSel < 60) bpmSel = 60; if(bpmSel > 300) bpmSel = 300; }
         if(pressed(key::RIGHT)) { bank = (bank + 1) % banks::COUNT; zoom.vel += fixed(0.3); }
         if(pressed(key::LEFT))  { bank = (bank + banks::COUNT - 1) % banks::COUNT; zoom.vel += fixed(0.3); }
     }
+    // Derive the pitch ratio from the chosen tempo: repitches the break to hit BPM,
+    // and because masterInterval = step/speed = BPM_K/bpmSel, the clock is bank-independent.
+    speed = fixed(bpmSel) * banks::step[bank] / BPM_K;
 
     if(pressed(key::SELECT) && down(key::START)) crush = ! crush;   // SEL+START chord = downsample FX
     else if(pressed(key::SELECT)) { zen = ! zen; if(zen) build_zen(); else build_explain(); zoom.vel += fixed(0.5); }
@@ -166,13 +176,17 @@ void pk::update()
     wasRep = repeating;
     bool stopping = repeating && down(key::DOWN);
 
-    // motion factor — when the audio halts (tape-stop), the WHOLE visual freezes with it
+    // motion factor — VISUAL ONLY: on a tape-stop the picture freezes, but the
+    // musical grid below keeps running (see MASTER CLOCK), so nothing drifts.
     fixed targetMotion = stopping ? ((voice && voice->active()) ? clamp(voice->speed(), fixed(0), fixed(1)) : fixed(0)) : fixed(1);
     vmotion = approach(vmotion, targetMotion, fixed(0.25));
 
-    // ---- MASTER CLOCK (motion-gated → the sequencer freezes with the audio) ----
+    // ---- MASTER CLOCK (BPM-locked → advances at a constant rate regardless of FX) ----
+    // Wall-clock-locked at bpmSel: masterInterval = BPM_K/bpmSel frames per slice.
+    // step tracks the TRUE beat even under a tape-stop/repeat, so releasing an FX
+    // snaps back onto the current beat instead of drifting off the grid.
     bool masterTick = false;
-    acc += vmotion;
+    acc += 1;
     if(acc >= masterInterval) { acc -= masterInterval; step = (step + 1) % STEPS; masterTick = true; }
 
     bool downbeat = false;
@@ -214,7 +228,7 @@ void pk::update()
 
     if(bank != waveBank) { for(int s = 0; s < 4; ++s) wsp[s].set_item(bn::sprite_items::waves, bank * 4 + s); waveBank = bank; }
 
-    int bpm = (BPM_K * speed / banks::step[bank] + fixed(0.5)).integer();
+    int bpm = bpmSel;   // canonical tempo — displayed value == the value you dialed in
 
     fixed drift = (sin(fixed(frame) * fixed(1.4)) + 1) / 2;
     color c = mix(T::base, T::bright, drift);
