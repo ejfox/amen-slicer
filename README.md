@@ -12,8 +12,8 @@ small p5.js-flavored layer (`include/pk.h`). Runs on real hardware and the Miyoo
 
 | Button | Action |
 |---|---|
-| **Up / Down** | tempo / stretch (repitch — pitch *and* tempo; live BPM readout) |
-| **Left / Right** | previous / next flavor |
+| **Up / Down** | tempo **±1 BPM** per tap (hold to scroll); repitches the break to hit it |
+| **Left / Right** | previous / next flavor — **tempo stays locked** across flavors |
 | **A / B / L / R** | stutter **1/16 · 1/32 · 1/8 · 1/64** (hold) |
 | **hold stutter + arrow** | breakdown FX — **Up** = build, **Down** = tape-stop, **L/R** = pitch |
 | **START** | tap the loop back to the **1** (align to an external downbeat) |
@@ -30,23 +30,60 @@ whole visual with the audio.
 freak (170) · skull (165) · toptape (150)` — original vinyl/cassette/CD rips plus
 retempo'd remixes, each at its own native BPM.
 
-## Sync
+## Sync — how the clock actually works
 
-Free-running clock matched to a target BPM (like a drum machine with no MIDI-in).
-A **master phase always advances on the grid**, so stutters/FX never knock the loop
-off-time. Set the same BPM as your other gear with Up/Down, then tap **START** on
-their downbeat to lock in. (True external clock lock would need link-cable MIDI —
-not implemented.)
+BPM is the **canonical value**, not a side-effect. Tap Up/Down to set an integer
+BPM; the engine derives the sample repitch from it (`speed = bpm × step / BPM_K`),
+so the master interval is `BPM_K / bpm` frames per slice — **independent of which
+break is loaded**. That's why switching flavors holds tempo instead of jumping.
+
+The **master phase advances at a constant rate**, gated to nothing. FX (tape-stop,
+beat-repeat, build) drive only the *visuals* — the musical grid keeps true time
+underneath them. So when you release an FX, playback **snaps back onto the current
+beat** instead of drifting. This is the whole point for live use: it stays on the
+grid no matter what you throw at it.
+
+Workflow with other gear: dial the same BPM with Up/Down, then tap **START** on
+their downbeat to align the "1". (It's a free-running clock — like a drum machine
+with no MIDI-in. True external clock lock would need link-cable MIDI, not
+implemented.)
+
+> **History:** until Aug 2026 the clock advanced by a `vmotion` factor that FX
+> ramped to zero, so the grid itself froze during FX and *permanently* lost time —
+> "the FX falls out of time." Fixed by locking the clock to a constant rate and
+> making `vmotion` visual-only. See commit `b754b32`.
 
 ## Build & run
 
 ```bash
 make -j8 && open -a mGBA amen.gba     # or: tools/dev.sh for a save->reload hot loop
 ```
-Deploy to the Miyoo Mini: `tools/deploy.sh` (build + copy to the SD card + eject).
+Deploy to the Miyoo Mini: `tools/deploy.sh` — builds, **boot-tests in mGBA**,
+copies to the SD card as `Amen Slicer.gba`, **wipes the stale gpSP save-state**
+(see Troubleshooting), and ejects. One command, no black screens.
 
 Requires devkitPro `gba-dev` + the Butano repo at `../butano`. Release builds use
 LTO (`-flto`, set in the Makefile).
+
+## Troubleshooting
+
+**Black screen with audio ticking after a rebuild ("crashes, doesn't draw").**
+Not a code bug — the Miyoo's **gpSP** core auto-saves a resume state on exit and
+auto-loads it on launch. After you rebuild, that state is from the *old* binary and
+poisons the new one. Fix: delete it (or just don't "resume" on the device):
+
+```
+/Volumes/<CARD>/Saves/CurrentProfile/states/gpSP/Amen Slicer.state*
+```
+
+`tools/deploy.sh` does this automatically. If you copy the ROM by hand, wipe the
+state yourself. Verify the ROM is actually fine first with `open -a mGBA amen.gba` —
+mGBA boots fresh (no auto-state), so if it runs there, it's the state, not the code.
+
+**Game not showing in the GBA list after adding it.** The launcher reads
+`Roms/GBA/miyoogamelist.xml` (authoritative) — a loose ROM not listed there is
+invisible, and rebuilding the cache won't help. Add a `<game>` entry, or delete the
+XML to fall back to a raw folder scan.
 
 ## Tools (`tools/`)
 

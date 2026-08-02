@@ -3,8 +3,8 @@
 // clock with a reactive visualizer. Atomic-purple theme on OLED black.
 //
 // CONTROLS
-//   Up / Down          tempo / stretch (repitch; live BPM readout)
-//   Left / Right        previous / next flavor
+//   Up / Down          tempo +/-1 BPM per tap (hold to scroll); repitches to hit it
+//   Left / Right        previous / next flavor (tempo stays locked across flavors)
 //   A / B / L / R       stutter 1/16, 1/32, 1/8, 1/64 (hold)
 //   hold stutter + arrow  breakdown FX — Up=build, Down=tape-stop, L/R=pitch
 //   START               tap the loop back to the 1 (align to an external downbeat)
